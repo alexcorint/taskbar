@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main",
+    "media_card",
+    "battery_menu"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "core:event:default",
+    "core:window:allow-set-always-on-top"
+  ]
+}
