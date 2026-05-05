@@ -5,7 +5,7 @@
   "windows": [
     "main",
     "media_card",
-    "battery_menu"
+    "control_menu"
   ],
   "permissions": [
     "core:default",

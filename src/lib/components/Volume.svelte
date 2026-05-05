@@ -1,43 +1,17 @@
 <script lang="ts">
-    import { invoke } from "@tauri-apps/api/core";
+    import { volume, setVolumeImmediate, toggleMuteImmediate } from "$lib/stores/system";
     import { fade } from "svelte/transition";
-    import { anchor } from "$lib/actions/anchor";
-    import { onMount } from "svelte";
+    import { invoke } from "@tauri-apps/api/core";
 
-    let isMuted = false;
-    let volumeLevel = 0.5;
-    let interval: ReturnType<typeof setInterval>;
+    // Reactivo al store — sin polling propio (era 500ms antes)
+    $: volumeLevel = $volume.volume;
+    $: isMuted = $volume.is_muted;
 
-    async function updateVolume() {
-        try {
-            const vol: any = await invoke("get_volume_status");
-            volumeLevel = vol.volume;
-            isMuted = vol.is_muted;
-        } catch (e) {
-            console.error("Error leyendo volumen:", e);
-        }
-    }
-
-    onMount(() => {
-        updateVolume();
-        interval = setInterval(updateVolume, 500);
-
-        return () => {
-            clearInterval(interval);
-        };
-    });
-
-    async function volMute() {
-        await invoke("volume_control", { action: "Mute" });
-        setTimeout(updateVolume, 50);
-    }
     async function volUp() {
         await invoke("volume_control", { action: "Up" });
-        setTimeout(updateVolume, 50);
     }
     async function volDown() {
         await invoke("volume_control", { action: "Down" });
-        setTimeout(updateVolume, 50);
     }
 
     function handleVolScroll(e: WheelEvent) {
@@ -68,26 +42,17 @@
                 <line x1="16" x2="22" y1="9" y2="15" />
             </g>
         {:else}
-            <!-- 1st wave: 1% to 100% -->
-            <path
-                d="M 14.83 9.17 a 4 4 0 0 1 0 5.66"
-                transition:fade={{ duration: 150 }}
-            />
+            <!-- 1ª onda: 1%–100% -->
+            <path d="M 14.83 9.17 a 4 4 0 0 1 0 5.66" transition:fade={{ duration: 150 }} />
 
-            <!-- 2nd wave: > 33% -->
+            <!-- 2ª onda: > 33% -->
             {#if volumeLevel > 0.33}
-                <path
-                    d="M 16.95 7.05 a 7 7 0 0 1 0 9.9"
-                    transition:fade={{ duration: 150 }}
-                />
+                <path d="M 16.95 7.05 a 7 7 0 0 1 0 9.9" transition:fade={{ duration: 150 }} />
             {/if}
 
-            <!-- 3rd wave: > 66% -->
+            <!-- 3ª onda: > 66% -->
             {#if volumeLevel > 0.66}
-                <path
-                    d="M 19.07 4.93 a 10 10 0 0 1 0 14.14"
-                    transition:fade={{ duration: 150 }}
-                />
+                <path d="M 19.07 4.93 a 10 10 0 0 1 0 14.14" transition:fade={{ duration: 150 }} />
             {/if}
         {/if}
     </svg>

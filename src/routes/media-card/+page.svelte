@@ -2,7 +2,6 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, emit } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
-  import { fade } from "svelte/transition";
 
   const slideTransition = (node: Element, { direction = "right" } = {}) => {
     const offsetX = direction === "left" ? 100 : -100;
@@ -103,15 +102,12 @@
 
   // --- LÓGICA DE VENTANA Y ANIMACIÓN ---
   let isExpanded = false;
-  let isOverControls = false;
-  let hoverTimer: ReturnType<typeof setInterval> | null = null;
   let leaveTimer: ReturnType<typeof setInterval> | null = null;
 
   let anchorCenterX = 0;
   let anchorBottom = 0;
   let scaleFactor = 1;
 
-  // 🌟 NUEVO: Variable reactiva para el Modo Navegador
   let isBrowser = false;
 
   $: {
@@ -125,7 +121,6 @@
 
     if (newIsBrowser !== isBrowser) {
       isBrowser = newIsBrowser;
-      // Redimensionamos al vuelo si la tarjeta ya está abierta
       if (isExpanded) applyWindowSize(true);
     }
   }
@@ -136,7 +131,6 @@
     posInterval = setInterval(tickPosition, 250);
 
     await listen<any>("sync-widget-anchor", (event) => {
-      // 🌟 Unificación: Solo procesamos si el evento es para nosotros
       if (event.payload.widgetId !== "media") return;
 
       console.log("[Media-Card] Received anchor sync:", event.payload);
@@ -154,6 +148,8 @@
     clearInterval(posInterval);
   });
 
+  let lastX = 0;
+  let lastY = 0;
   let lastW = 0;
   let lastH = 0;
 
@@ -161,7 +157,6 @@
     if (anchorCenterX === 0) return;
 
     const w = 300;
-    // 🌟 NUEVO: Altura dinámica dependiendo de la fuente
     const h = expanded ? (isBrowser ? 280 : 380) : 48;
 
     const physicalW = Math.round(w * scaleFactor);
@@ -169,7 +164,16 @@
     const physicalX = Math.round(anchorCenterX - physicalW / 2);
     const physicalY = Math.round(anchorBottom - physicalH);
 
-    if (physicalW === lastW && physicalH === lastH) return;
+    if (
+      physicalX === lastX &&
+      physicalY === lastY &&
+      physicalW === lastW &&
+      physicalH === lastH
+    ) {
+      return;
+    }
+    lastX = physicalX;
+    lastY = physicalY;
     lastW = physicalW;
     lastH = physicalH;
 
@@ -187,39 +191,26 @@
     });
   }
 
-  function handleEnter() {
+  async function toggleExpand() {
+    if (isExpanded) {
+      isExpanded = false;
+      setTimeout(async () => {
+        if (!isExpanded) await applyWindowSize(false);
+      }, 300); // Wait for animation
+    } else {
+      await applyWindowSize(true);
+      isExpanded = true;
+    }
+  }
+
+  function handleMainEnter() {
     if (leaveTimer) {
       clearTimeout(leaveTimer);
       leaveTimer = null;
     }
-    if (!isExpanded && !isOverControls) {
-      if (hoverTimer) clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(async () => {
-        if (isOverControls || isExpanded) return;
-        await applyWindowSize(true);
-        isExpanded = true;
-      }, 650);
-    }
-  }
-
-  function handleControlsEnter() {
-    isOverControls = true;
-    if (hoverTimer) {
-      clearTimeout(hoverTimer);
-      hoverTimer = null;
-    }
-  }
-
-  function handleControlsLeave() {
-    isOverControls = false;
-    handleEnter();
   }
 
   function handleLeave() {
-    if (hoverTimer) {
-      clearTimeout(hoverTimer);
-      hoverTimer = null;
-    }
     leaveTimer = setTimeout(async () => {
       isExpanded = false;
       setTimeout(async () => {
@@ -246,13 +237,11 @@
       const diff = content.scrollWidth - container.clientWidth;
       if (diff > 0) {
         container.classList.add("is-overflowing");
-        // Añadimos un pequeño extra (20px) para que el final se vea bien con el fade
         const scrollDistance = diff + 20;
         container.style.setProperty(
           "--scroll-distance",
           `-${scrollDistance}px`,
         );
-        // Recalculamos la duración con la nueva distancia
         const duration = scrollDistance / 15 + 6;
         container.style.setProperty("--scroll-duration", `${duration}s`);
       } else {
@@ -265,7 +254,6 @@
     const ro = new ResizeObserver(check);
     ro.observe(node);
 
-    // Pequeño delay para asegurar que el DOM se ha renderizado
     setTimeout(check, 50);
 
     return {
@@ -279,24 +267,17 @@
   }
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<main on:mouseenter={handleEnter} on:mouseleave={handleLeave}>
-  <!-- 🌟 NUEVO: Añadimos la clase browser-mode condicionalmente -->
-  <div
-    class="media-morph {isExpanded ? 'expanded' : 'collapsed'} {isExpanded &&
-    isBrowser
-      ? 'browser-mode'
-      : ''}"
-  >
-    {#if isExpanded}
-      <div
-        class="card-content-wrapper"
-        in:fade={{ duration: 250, delay: 100 }}
-        out:fade={{ duration: 150 }}
-      >
+<main on:mouseenter={handleMainEnter} on:mouseleave={handleLeave}>
+  <div class="layout-container">
+    <!-- 1. INTERFAZ DE TARJETA (Flotando arriba) -->
+    <div
+      class="card-morph {isExpanded ? 'visible' : 'hidden'} {isBrowser
+        ? 'browser-mode'
+        : ''}"
+    >
+      <div class="card-content-wrapper {isExpanded ? 'visible' : 'hidden'}">
         <div class="card-art-bg">
           {#if thumbnailUrl}
-            <!-- 🌟 NUEVO: Desenfoque para disimular la pixelación del navegador -->
             <img
               src={thumbnailUrl}
               alt="Album art"
@@ -313,6 +294,8 @@
         </div>
 
         <div class="card-content">
+          <div class="spacer" style="flex: 1;"></div>
+
           <div class="card-track-info">
             <div
               in:slideTransition={{
@@ -340,7 +323,6 @@
             </div>
           </div>
 
-          <!-- 🌟 NUEVO: Solo mostramos la barra de progreso si no es un navegador -->
           {#if data.duration_ms > 0 && !isBrowser}
             <div class="card-progress-area">
               <div class="card-progress-bar">
@@ -355,122 +337,73 @@
               </div>
             </div>
           {/if}
-
-          <div class="card-controls">
-            <button
-              class="card-btn"
-              on:click={prevTrack}
-              aria-label="Previous track"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="22"
-                height="22"
-                fill="currentColor"
-                ><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg
-              >
-            </button>
-            <button
-              class="card-btn card-btn-play"
-              on:click={togglePlay}
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {#if isPlaying}
-                <svg
-                  viewBox="0 0 24 24"
-                  width="28"
-                  height="28"
-                  fill="currentColor"
-                  ><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg
-                >
-              {:else}
-                <svg
-                  viewBox="0 0 24 24"
-                  width="28"
-                  height="28"
-                  fill="currentColor"><path d="M8 5v14l11-7z" /></svg
-                >
-              {/if}
-            </button>
-            <button
-              class="card-btn"
-              on:click={nextTrack}
-              aria-label="Next track"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="22"
-                height="22"
-                fill="currentColor"
-                ><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg
-              >
-            </button>
-          </div>
         </div>
       </div>
-    {:else}
-      <!-- INTERFAZ DE PÍLDORA -->
-      <div
-        class="pill-content-wrapper"
-        in:fade={{ duration: 250, delay: 100 }}
-        out:fade={{ duration: 150 }}
-      >
-        <div class="backgrounds">
-          {#key data.title}
-            <div
-              class="bg-layer"
-              style="--bg-img: {thumbnailUrl
-                ? `url('${thumbnailUrl}')`
-                : 'none'}"
-              in:slideTransition={{
-                direction: slideDirection === "left" ? "left" : "right",
-              }}
-              out:slideTransition={{
-                direction: slideDirection === "left" ? "right" : "left",
-              }}
-            ></div>
-          {/key}
-        </div>
+    </div>
 
-        <span class="app-icon z-1">{@html getAppIcon(data)}</span>
+    <!-- 2. INTERFAZ DE PÍLDORA (Actúa como botón de toggle) -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="pill-morph {isExpanded ? 'expanded' : 'collapsed'}"
+      on:click={toggleExpand}
+    >
+      <div class="backgrounds">
+        {#key data.title}
+          <div
+            class="bg-layer"
+            style="--bg-img: {thumbnailUrl ? `url('${thumbnailUrl}')` : 'none'}"
+            in:slideTransition={{
+              direction: slideDirection === "left" ? "left" : "right",
+            }}
+            out:slideTransition={{
+              direction: slideDirection === "left" ? "right" : "left",
+            }}
+          ></div>
+        {/key}
+      </div>
 
-        <div class="track-info-container z-1">
-          {#key data.title}
-            <div
-              class="track-info"
-              in:slideTransition={{
-                direction: slideDirection === "left" ? "left" : "right",
-              }}
-              out:slideTransition={{
-                direction: slideDirection === "left" ? "right" : "left",
-              }}
-            >
-              <div class="marquee-container" use:marqueeAction={data.title}>
-                <span class="title marquee-content">{data.title}</span>
-              </div>
-              {#if data.artist}
-                <div class="marquee-container" use:marqueeAction={data.artist}>
-                  <span class="artist marquee-content">
-                    {data.artist}
-                  </span>
+      <div class="pill-content-wrapper {isExpanded ? 'expanded' : ''}">
+        <div class="pill-info-section">
+          <span class="app-icon z-1">{@html getAppIcon(data)}</span>
+
+          <div class="track-info-container z-1">
+            {#key data.title}
+              <div
+                class="track-info"
+                in:slideTransition={{
+                  direction: slideDirection === "left" ? "left" : "right",
+                }}
+                out:slideTransition={{
+                  direction: slideDirection === "left" ? "right" : "left",
+                }}
+              >
+                <div class="marquee-container" use:marqueeAction={data.title}>
+                  <span class="title marquee-content">{data.title}</span>
                 </div>
-              {/if}
-            </div>
-          {/key}
+                {#if data.artist}
+                  <div
+                    class="marquee-container"
+                    use:marqueeAction={data.artist}
+                  >
+                    <span class="artist marquee-content">
+                      {data.artist}
+                    </span>
+                  </div>
+                {/if}
+              </div>
+            {/key}
+          </div>
         </div>
 
-        <div
-          class="controls z-1"
-          on:mouseenter={handleControlsEnter}
-          on:mouseleave={handleControlsLeave}
-        >
-          <button on:click={prevTrack} aria-label="Previous">
+        <div class="controls z-1">
+          <button on:click|stopPropagation={prevTrack} aria-label="Previous">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"
               ><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg
             >
           </button>
           <button
-            on:click={togglePlay}
+            on:click|stopPropagation={togglePlay}
             aria-label={isPlaying ? "Pause" : "Play"}
           >
             {#if isPlaying}
@@ -490,14 +423,14 @@
               >
             {/if}
           </button>
-          <button on:click={nextTrack} aria-label="Next">
+          <button on:click|stopPropagation={nextTrack} aria-label="Next">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"
               ><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg
             >
           </button>
         </div>
       </div>
-    {/if}
+    </div>
   </div>
 </main>
 
@@ -520,65 +453,72 @@
     flex-direction: column;
     justify-content: flex-end;
     align-items: center;
+    padding-bottom: 4px;
   }
 
-  .media-morph {
+  .layout-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 300px;
+  }
+
+  /* --- CARD MORPH --- */
+  .card-morph {
+    width: 300px;
+    height: 332px;
+    border-radius: 16px;
     background: #18181b;
-    overflow: hidden;
     position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    margin-bottom: 8px;
+    overflow: hidden;
     transition:
-      width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
-      border-radius 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 0.2s ease,
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       margin-bottom 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 
-  .media-morph.collapsed {
+  .card-morph.browser-mode {
+    height: 232px;
+  }
+
+  .card-morph.hidden {
+    height: 0;
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+    pointer-events: none;
+    border-width: 0;
+    margin-bottom: 0;
+  }
+
+  /* --- PILL MORPH --- */
+  .pill-morph {
     width: 300px;
     height: 40px;
     border-radius: 50px;
+    background: #18181b;
     border: 1px solid #3f3f46;
-    margin-bottom: 4px;
+    position: relative;
+    overflow: hidden;
     transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    cursor: pointer;
   }
 
-  .media-morph.collapsed:hover {
+  .pill-morph:hover {
     background: #27272a;
     border-color: #52525b;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
   }
 
-  /* Estado Tarjeta Estándar (Spotify, etc.) */
-  .media-morph.expanded {
-    width: 300px;
-    height: 380px;
-    border-radius: 16px 16px 0 0;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 0;
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
-  }
-
-  /* 🌟 NUEVO: Estado Tarjeta Navegador (Más bajita) */
-  .media-morph.expanded.browser-mode {
-    height: 280px;
-  }
-
-  .card-content-wrapper,
   .pill-content-wrapper {
-    position: absolute;
-    top: 0;
-    left: 0;
+    position: relative;
     width: 100%;
     height: 100%;
-  }
-
-  .pill-content-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 16px;
-    color: #e0e0e0;
   }
 
   .backgrounds {
@@ -603,6 +543,27 @@
 
   .z-1 {
     z-index: 1;
+  }
+
+  .pill-info-section {
+    position: absolute;
+    left: 16px;
+    right: 90px;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition:
+      opacity 0.2s,
+      transform 0.3s;
+    transform: translateX(0);
+  }
+
+  .expanded .pill-info-section {
+    opacity: 0;
+    transform: translateX(-20px);
+    pointer-events: none;
   }
 
   .app-icon {
@@ -682,9 +643,20 @@
   }
 
   .controls {
+    position: absolute;
+    right: 16px;
+    top: 0;
+    bottom: 0;
     display: flex;
-    gap: 4px;
     align-items: center;
+    gap: 4px;
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .expanded .controls {
+    right: 50%;
+    transform: translateX(50%);
+    gap: 24px;
   }
 
   .controls button {
@@ -698,10 +670,18 @@
     border-radius: 4px;
     width: 24px;
     height: 24px;
-    transition:
-      background 0.2s,
-      transform 0.1s;
+    transition: all 0.2s;
     outline: none;
+  }
+
+  .expanded .controls button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .expanded .controls button svg {
+    width: 20px;
+    height: 20px;
   }
 
   .controls button:hover {
@@ -727,10 +707,9 @@
     display: block;
   }
 
-  /* 🌟 NUEVO: Clase condicional para desenfocar imágenes de baja calidad */
   .card-art-img.blurred-bg {
     filter: blur(12px);
-    transform: scale(1.1); /* Evita márgenes blancos por el difuminado */
+    transform: scale(1.1);
   }
 
   .card-art-overlay {
@@ -802,39 +781,27 @@
     color: rgba(255, 255, 255, 0.5);
     font-variant-numeric: tabular-nums;
   }
-  .card-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
+
+  /* --- TRANSICIONES DE ESTADO (DOM INMORTAL) --- */
+
+  .card-content-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
   }
-  .card-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: rgba(255, 255, 255, 0.8);
-    cursor: pointer;
-    transition:
-      color 0.15s,
-      background 0.15s;
+
+  .hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
-  .card-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
-  }
-  .card-btn-play {
-    width: 48px;
-    height: 48px;
-    background: #fff;
-    color: #18181b;
-  }
-  .card-btn-play:hover {
-    background: #e4e4e7;
-    transform: scale(1.05);
+
+  .visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 </style>

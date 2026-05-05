@@ -9,7 +9,7 @@
   onMount(() => {
     let unlistenToggle: (() => void) | null = null;
 
-    listen<boolean>("toggle-battery-menu", (event) => {
+    listen<boolean>("toggle-control-menu", (event) => {
       if (event.payload) {
         isMenuVisible = true;
         emit("request-sync");
@@ -18,7 +18,7 @@
         setTimeout(() => {
           if (!isMenuVisible) {
             invoke("manage_window", {
-              label: "battery_menu",
+              label: "control_menu",
               action: { type: "hide" },
             });
           }
@@ -61,16 +61,16 @@
 
   .menu-wrapper {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateY(10px) scale(0.95);
     transition:
-      opacity 0.25s cubic-bezier(0.215, 0.61, 0.355, 1),
-      transform 0.25s cubic-bezier(0.215, 0.61, 0.355, 1);
+      opacity 0.2s ease,
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
     pointer-events: none;
   }
 
   .menu-wrapper.visible {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
     pointer-events: auto;
   }
 </style>

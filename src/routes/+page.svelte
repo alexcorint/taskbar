@@ -1,48 +1,51 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen, emit } from "@tauri-apps/api/event";
 
   import Clock from "$lib/components/Clock.svelte";
-  import Media from "$lib/components/Media.svelte";
   import Battery from "$lib/components/Battery.svelte";
   import Volume from "$lib/components/Volume.svelte";
-  import { listen, emit } from "@tauri-apps/api/event";
+  import Network from "$lib/components/Network.svelte";
+
   import { anchor } from "$lib/actions/anchor";
+  import { Keyframes } from "$lib/animations";
+  import { startSystemPolling, getMonitors } from "$lib/stores/system";
+  import type { TaskbarApp, DragOrigin } from "$lib/types";
 
-  let apps: Array<{
-    id: string;
-    title: string;
-    icon_base64: string;
-    is_active: boolean;
-    is_pinned: boolean;
-    hwnd: number;
-    exec_path: string;
-  }> = $state([]);
+  // ---------------------------------------------------------------------------
+  // Estado
+  // ---------------------------------------------------------------------------
 
+  let apps = $state<TaskbarApp[]>([]);
   let errorMsg = $state("");
-  let appsInterval: any;
+  let appsInterval: ReturnType<typeof setInterval>;
   let startMenuOpen = $state(false);
   let isMenuVisible = $state(false);
   let isMouseInTaskbar = $state(false);
   let isMouseInControlMenu = $state(false);
   let controlMenuTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Drag & drop: objeto cohesivo en lugar de 4 variables sueltas
+  let dragOrigin = $state<DragOrigin | null>(null);
+  let dragSrcId = $state<string | null>(null);
+  let dragOverId = $state<string | null>(null);
+  let isDragging = $state(false);
+
+  // ---------------------------------------------------------------------------
+  // Control del menú de control
+  // ---------------------------------------------------------------------------
+
   async function toggleControlMenu(force?: boolean) {
     if (force === false || (force === undefined && isMenuVisible)) {
       isMenuVisible = false;
-      await invoke("manage_window", {
-        label: "battery_menu",
-        action: { type: "hide" },
-      });
-      await emit("toggle-battery-menu", false);
+      await invoke("manage_window", { label: "control_menu", action: { type: "hide" } });
+      await emit("toggle-control-menu", false);
     } else {
       isMenuVisible = true;
-      await invoke("manage_window", {
-        label: "battery_menu",
-        action: { type: "show" },
-      });
-      await emit("toggle-battery-menu", true);
+      await invoke("manage_window", { label: "control_menu", action: { type: "show" } });
+      await emit("toggle-control-menu", true);
     }
   }
 
@@ -55,94 +58,78 @@
     }, 300);
   }
 
-  // --- Reordenación con pointer events (más fiable que HTML5 drag en WebView2/Tauri) ---
-  let dragSrcId = $state<string | null>(null); // id del icono que se está arrastrando
-  let dragOverId = $state<string | null>(null); // id del icono sobre el que está el cursor
-  let isDragging = $state(false); // arrastrando activamente (pasado el threshold)
-
-  let _pointerDownId: string | null = null; // id al hacer mousedown (no reactivo)
-  let _pointerDownApp: any = null; // app al hacer mousedown
-  let _startX = 0;
-  let _startY = 0;
+  // ---------------------------------------------------------------------------
+  // Apps de la barra de tareas
+  // ---------------------------------------------------------------------------
 
   async function fetchApps() {
     if (isDragging) return;
     try {
-      const result = await invoke<typeof apps>("get_taskbar_apps");
-      apps = result;
-    } catch (e: any) {
+      apps = await invoke<TaskbarApp[]>("get_taskbar_apps");
+    } catch (e: unknown) {
       errorMsg = String(e);
     }
   }
 
-  async function interactApp(app: any) {
+  async function interactApp(app: TaskbarApp) {
     try {
       await invoke("interact_app", { hwnd: app.hwnd, execPath: app.exec_path });
       fetchApps();
-    } catch (e: any) {
+    } catch (e: unknown) {
       errorMsg = String(e);
     }
   }
 
   async function toggleStartMenu() {
     if (startMenuOpen) {
-      // El clic en nuestro botón ya cerró el menú (por cambio de foco).
-      // Solo actualizamos el estado, sin enviar la tecla Win (evita re-abrirlo).
       startMenuOpen = false;
     } else {
-      // El menú estaba cerrado → lo abrimos con la tecla Win.
       startMenuOpen = true;
       await invoke("open_start_menu");
     }
   }
 
-  // Pointer down: registrar punto de inicio
-  function onBtnPointerDown(e: PointerEvent, app: any) {
-    if (e.button !== 0) return; // solo botón izquierdo
-    _pointerDownId = app.id;
-    _pointerDownApp = app;
-    _startX = e.clientX;
-    _startY = e.clientY;
+  // ---------------------------------------------------------------------------
+  // Drag & drop con pointer events
+  // ---------------------------------------------------------------------------
+
+  function onBtnPointerDown(e: PointerEvent, app: TaskbarApp) {
+    if (e.button !== 0) return;
+    dragOrigin = { id: app.id, app, startX: e.clientX, startY: e.clientY };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }
 
-  // Pointer move: iniciar drag si supera el threshold
-  function onBtnPointerMove(e: PointerEvent, app: any) {
-    if (_pointerDownId !== app.id) return;
-    const dx = Math.abs(e.clientX - _startX);
-    const dy = Math.abs(e.clientY - _startY);
+  function onBtnPointerMove(e: PointerEvent, app: TaskbarApp) {
+    if (!dragOrigin || dragOrigin.id !== app.id) return;
+    const dx = Math.abs(e.clientX - dragOrigin.startX);
+    const dy = Math.abs(e.clientY - dragOrigin.startY);
     if (!isDragging && (dx > 6 || dy > 6)) {
       isDragging = true;
       dragSrcId = app.id;
     }
   }
 
-  // Pointer enter en un botón mientras se arrastra: marcar como destino
-  function onBtnPointerEnter(app: any) {
+  function onBtnPointerEnter(app: TaskbarApp) {
     if (isDragging && dragSrcId !== app.id) {
       dragOverId = app.id;
     }
   }
 
-  // Pointer leave de un botón mientras se arrastra
-  function onBtnPointerLeave(app: any) {
+  function onBtnPointerLeave(app: TaskbarApp) {
     if (isDragging && dragOverId === app.id) {
       dragOverId = null;
     }
   }
 
-  // Pointer up: soltar — click o drop según si hubo movimiento
-  function onBtnPointerUp(e: PointerEvent, app: any) {
-    if (_pointerDownId !== app.id) return;
+  function onBtnPointerUp(e: PointerEvent, app: TaskbarApp) {
+    if (!dragOrigin || dragOrigin.id !== app.id) return;
 
     if (isDragging) {
-      // Fue un drag → reordenar si hay destino
       const targetId = dragOverId;
       isDragging = false;
       dragSrcId = null;
       dragOverId = null;
-      _pointerDownId = null;
-      _pointerDownApp = null;
+      dragOrigin = null;
 
       if (targetId && targetId !== app.id) {
         const newApps = [...apps];
@@ -152,23 +139,26 @@
           const [moved] = newApps.splice(srcIdx, 1);
           newApps.splice(tgtIdx, 0, moved);
           apps = newApps;
-          invoke("reorder_apps", {
-            orderedIds: newApps.map((a) => a.id),
-          }).catch(() => {});
+          invoke("reorder_apps", { orderedIds: newApps.map((a) => a.id) }).catch(() => {});
         }
       }
     } else {
-      // Fue un click → lanzar/enfocar la app
       isDragging = false;
       dragSrcId = null;
       dragOverId = null;
-      _pointerDownId = null;
-      _pointerDownApp = null;
+      dragOrigin = null;
       interactApp(app);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Ciclo de vida
+  // ---------------------------------------------------------------------------
+
   onMount(() => {
+    // Arrancar el store centralizado (una sola vez para toda la app)
+    const stopPolling = startSystemPolling();
+
     async function setup() {
       fetchApps();
       appsInterval = setInterval(fetchApps, 2000);
@@ -176,72 +166,45 @@
       try {
         await invoke("init_taskbar_environment");
 
-        const appWindow = getCurrentWindow();
-
-        // Obtener monitores desde Rust (evita problemas de caché con la API JS de Tauri)
-        const monitors = await invoke<
-          Array<{
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-            scale_factor: number;
-          }>
-        >("get_monitor_rects");
-
-        // Usar el segundo monitor (índice 1) para tests; si solo hay uno, usar el primero
+        const monitors = await getMonitors(); // usa caché del store
         const monitor = monitors[0];
 
         if (monitor) {
-          // La altura lógica de la barra es 48px; convertirla a píxeles físicos según el DPI del monitor
           const taskbarLogical = 48;
           const taskbarH = Math.round(taskbarLogical * monitor.scale_factor);
 
-          const targetX = monitor.x;
-          const targetY = monitor.y + monitor.height - taskbarH;
-          const targetW = monitor.width;
-          const targetH = taskbarH;
+          await invoke("move_window", {
+            x: monitor.x,
+            y: monitor.y + monitor.height - taskbarH,
+            w: monitor.width,
+            h: taskbarH,
+          }).catch((e) => console.error("[taskbar] move_window:", e));
 
-          try {
-            await invoke("move_window", {
-              x: targetX,
-              y: targetY,
-              w: targetW,
-              h: targetH,
-            });
-          } catch (e) {
-            console.error("[taskbar] move_window error:", e);
-          }
-
-          try {
-            await invoke("set_window_to_bottom");
-          } catch (e) {
-            console.error("[taskbar] set_window_to_bottom error:", e);
-          }
+          await invoke("set_window_to_bottom")
+            .catch((e) => console.error("[taskbar] set_window_to_bottom:", e));
         }
       } catch (e) {
-        console.error("[taskbar] onMount setup error:", e);
+        console.error("[taskbar] setup error:", e);
       }
     }
 
     setup();
 
-    let unlistenHover: any;
-    listen<boolean>("battery-menu-hover", (event) => {
+    let unlistenHover: (() => void) | undefined;
+    listen<boolean>("control-menu-hover", (event) => {
       isMouseInControlMenu = event.payload;
       if (!isMouseInControlMenu) checkCloseControlMenu();
     }).then((fn) => (unlistenHover = fn));
 
     return () => {
-      if (appsInterval) clearInterval(appsInterval);
-      if (unlistenHover) unlistenHover();
+      clearInterval(appsInterval);
+      stopPolling();
+      unlistenHover?.();
     };
   });
-
-  onDestroy(() => {
-    // handled in onMount return
-  });
 </script>
+
+<Keyframes />
 
 <main
   class="taskbar"
@@ -258,17 +221,13 @@
     <button
       class="icon-btn {startMenuOpen ? 'active' : ''}"
       onclick={toggleStartMenu}
-      title="Menú de Inicio">⊞</button
-    >
+      title="Menú de Inicio"
+    >⊞</button>
   </section>
 
   <div class="divider"></div>
 
-  <div
-    class="module programs"
-    role="toolbar"
-    aria-label="Aplicaciones abiertas"
-  >
+  <div class="module programs" role="toolbar" aria-label="Aplicaciones abiertas">
     {#if errorMsg}
       <div style="color: red; font-size: 10px;">{errorMsg}</div>
     {/if}
@@ -285,11 +244,7 @@
         onpointerleave={() => onBtnPointerLeave(app)}
       >
         {#if app.icon_base64}
-          <img
-            src={`data:image/png;base64,${app.icon_base64}`}
-            alt={app.title}
-            draggable="false"
-          />
+          <img src={`data:image/png;base64,${app.icon_base64}`} alt={app.title} draggable="false" />
         {:else}
           <div class="generic-icon">📦</div>
         {/if}
@@ -303,7 +258,7 @@
   <div class="divider"></div>
 
   <section class="module media">
-    <Media />
+    <div class="media-ghost-slot" use:anchor={"media"}></div>
   </section>
 
   <div class="divider"></div>
@@ -316,6 +271,7 @@
       type="button"
       aria-label="Ajustes rápidos"
     >
+      <Network />
       <Battery />
       <Volume />
     </button>
@@ -331,7 +287,6 @@
 </main>
 
 <style>
-  /* ESTILOS GLOBALES PARA LA VENTANA TRANSPARENTE */
   :global(body, html) {
     margin: 0;
     padding: 0;
@@ -345,12 +300,11 @@
     box-sizing: border-box;
   }
 
-  /* CONTENEDOR PRINCIPAL FLEXBOX */
   .taskbar {
     display: flex;
     align-items: center;
     background-color: rgba(16, 16, 19, 0.1);
-    backdrop-filter: blur(12px); /* Efecto Glassmorphism */
+    backdrop-filter: blur(12px);
     width: 100vw;
     height: 48px;
     position: fixed;
@@ -371,7 +325,6 @@
     flex-grow: 1;
     margin-left: 15px;
     gap: 4px;
-    /* Alinear desde la izquierda y no contraerse */
     flex-shrink: 0;
     min-width: 0;
     justify-content: flex-start;
@@ -410,7 +363,6 @@
     background: rgba(0, 120, 212, 0.45);
   }
 
-  /* ESTILOS DE APLICACIONES */
   .program-btn {
     position: relative;
     width: 40px;
@@ -422,28 +374,23 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    transition:
-      background 0.15s,
-      opacity 0.15s,
-      transform 0.15s;
+    transition: background 0.15s, opacity 0.15s, transform 0.15s;
     padding: 0;
     flex-shrink: 0;
     user-select: none;
-    touch-action: none; /* necesario para pointer capture */
+    touch-action: none;
   }
 
   .program-btn:hover {
     background: rgba(255, 255, 255, 0.1);
   }
 
-  /* App siendo arrastrada: semitransparente */
   .program-btn.dragging {
     opacity: 0.35;
     cursor: grabbing;
     transform: scale(0.9);
   }
 
-  /* Destino del drop: resaltar con borde azul */
   .program-btn.drag-over {
     background: rgba(0, 120, 212, 0.25);
     outline: 2px solid rgba(0, 120, 212, 0.7);
@@ -471,10 +418,6 @@
     background-color: #0078d4;
     border-radius: 2px;
     transition: width 0.2s;
-  }
-
-  .program-btn.active .active-indicator {
-    width: 16px;
   }
 
   .media {
@@ -505,5 +448,14 @@
 
   .utils-container:active {
     transform: scale(0.98);
+  }
+
+  .media-ghost-slot {
+    position: relative;
+    width: 300px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 </style>
