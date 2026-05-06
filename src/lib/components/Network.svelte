@@ -1,53 +1,13 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { network } from "$lib/stores/system";
     import { fade } from "svelte/transition";
-    import { invoke } from "@tauri-apps/api/core";
 
-    let isOnline = $state(true);
-    let connectionInfo = $state({
-        type: "unknown",
-        effectiveType: "unknown",
-        signalStrength: 0,
-    });
-
-    async function updateNetworkStatus() {
-        try {
-            const status: any = await invoke("get_network_status");
-            isOnline = status.is_online;
-            connectionInfo = {
-                type: status.connection_type,
-                effectiveType: "unknown", // No disponible directamente así
-                signalStrength: status.signal_strength,
-            };
-        } catch (e) {
-            console.error("Error fetching native network status:", e);
-            isOnline = navigator.onLine;
-            const conn = (navigator as any).connection;
-            if (conn) {
-                connectionInfo = {
-                    type: conn.type || "unknown",
-                    effectiveType: conn.effectiveType || "unknown",
-                    signalStrength: 0,
-                };
-            }
-        }
-    }
-
-    onMount(() => {
-        updateNetworkStatus();
-        const interval = setInterval(updateNetworkStatus, 5000);
-
-        return () => {
-            clearInterval(interval);
-        };
-    });
-
-    const isEthernet = $derived(connectionInfo.type === "ethernet");
+    const isEthernet = $derived($network.connection_type === "ethernet");
 </script>
 
 <div
     class="network-container"
-    title={isOnline
+    title={$network.is_online
         ? `Conectado (${isEthernet ? "Ethernet" : "Wi-Fi"})`
         : "Desconectado"}
 >
@@ -61,7 +21,7 @@
         stroke-linecap="round"
         stroke-linejoin="round"
     >
-        {#if !isOnline}
+        {#if !$network.is_online}
             <!-- Icono de red desconectada -->
             <g transition:fade={{ duration: 150 }}>
                 <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
@@ -95,21 +55,21 @@
                     r="2"
                     fill="currentColor"
                     stroke="none"
-                    opacity={connectionInfo.signalStrength >= 1 ? 1 : 0.2}
+                    opacity={$network.signal_strength >= 1 ? 1 : 0.2}
                 />
 
                 <!-- Ondas de señal adaptadas a la intensidad -->
                 <path
                     d="M14 19 A 5 5 0 0 1 19 14"
-                    opacity={connectionInfo.signalStrength >= 2 ? 1 : 0.2}
+                    opacity={$network.signal_strength >= 2 ? 1 : 0.2}
                 />
                 <path
                     d="M9 19 A 10 10 0 0 1 19 9"
-                    opacity={connectionInfo.signalStrength >= 3 ? 1 : 0.2}
+                    opacity={$network.signal_strength >= 3 ? 1 : 0.2}
                 />
                 <path
                     d="M4 19 A 15 15 0 0 1 19 4"
-                    opacity={connectionInfo.signalStrength >= 4 ? 1 : 0.2}
+                    opacity={$network.signal_strength >= 4 ? 1 : 0.2}
                 />
             </g>
         {/if}
@@ -121,6 +81,5 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        cursor: pointer;
     }
 </style>

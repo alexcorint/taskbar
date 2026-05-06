@@ -118,13 +118,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        cursor: pointer;
         padding: 4px;
         border-radius: 6px;
-        transition: background 0.2s;
-    }
-
-    .battery-container:hover {
-        background: rgba(255, 255, 255, 0.1);
     }
 </style>

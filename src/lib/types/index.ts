@@ -51,12 +51,6 @@ export interface BluetoothDeviceInfo {
   is_connected: boolean;
 }
 
-export interface PowerProfile {
-  guid: string;
-  name: string;
-  active: boolean;
-}
-
 export interface MediaInfo {
   title: string;
   artist: string;

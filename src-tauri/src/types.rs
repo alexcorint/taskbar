@@ -30,13 +30,6 @@ pub struct BatteryInfo {
     pub battery_saver: bool,
 }
 
-#[derive(Serialize)]
-pub struct PowerProfile {
-    pub guid: String,
-    pub name: String,
-    pub active: bool,
-}
-
 // ---------------------------------------------------------------------------
 // Audio / Volumen
 // ---------------------------------------------------------------------------

@@ -515,6 +515,15 @@
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
   }
 
+  .pill-morph.expanded {
+    background: #000;
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .pill-morph.expanded:hover {
+    background: #000;
+  }
+
   .pill-content-wrapper {
     position: relative;
     width: 100%;
@@ -530,6 +539,11 @@
     z-index: 0;
     border-radius: 50px;
     overflow: hidden;
+    transition: opacity 0.3s ease;
+  }
+
+  .expanded .backgrounds {
+    opacity: 0;
   }
 
   .bg-layer {

@@ -8,6 +8,7 @@
   import Battery from "$lib/components/Battery.svelte";
   import Volume from "$lib/components/Volume.svelte";
   import Network from "$lib/components/Network.svelte";
+  import Icon, { iconifyer, exceptions } from "$lib/iconMap";
 
   import { anchor } from "$lib/actions/anchor";
   import { Keyframes } from "$lib/animations";
@@ -40,11 +41,17 @@
   async function toggleControlMenu(force?: boolean) {
     if (force === false || (force === undefined && isMenuVisible)) {
       isMenuVisible = false;
-      await invoke("manage_window", { label: "control_menu", action: { type: "hide" } });
+      await invoke("manage_window", {
+        label: "control_menu",
+        action: { type: "hide" },
+      });
       await emit("toggle-control-menu", false);
     } else {
       isMenuVisible = true;
-      await invoke("manage_window", { label: "control_menu", action: { type: "show" } });
+      await invoke("manage_window", {
+        label: "control_menu",
+        action: { type: "show" },
+      });
       await emit("toggle-control-menu", true);
     }
   }
@@ -65,7 +72,11 @@
   async function fetchApps() {
     if (isDragging) return;
     try {
-      apps = await invoke<TaskbarApp[]>("get_taskbar_apps");
+      const allApps = await invoke<TaskbarApp[]>("get_taskbar_apps");
+      // Filtrar la propia aplicación para que no aparezca en la barra
+      apps = allApps.filter(
+        (app) => !app.exec_path.toLowerCase().includes("vibrant-dawn-taskbar"),
+      );
     } catch (e: unknown) {
       errorMsg = String(e);
     }
@@ -139,7 +150,9 @@
           const [moved] = newApps.splice(srcIdx, 1);
           newApps.splice(tgtIdx, 0, moved);
           apps = newApps;
-          invoke("reorder_apps", { orderedIds: newApps.map((a) => a.id) }).catch(() => {});
+          invoke("reorder_apps", {
+            orderedIds: newApps.map((a) => a.id),
+          }).catch(() => {});
         }
       }
     } else {
@@ -180,8 +193,9 @@
             h: taskbarH,
           }).catch((e) => console.error("[taskbar] move_window:", e));
 
-          await invoke("set_window_to_bottom")
-            .catch((e) => console.error("[taskbar] set_window_to_bottom:", e));
+          await invoke("set_window_to_bottom").catch((e) =>
+            console.error("[taskbar] set_window_to_bottom:", e),
+          );
         }
       } catch (e) {
         console.error("[taskbar] setup error:", e);
@@ -221,17 +235,33 @@
     <button
       class="icon-btn {startMenuOpen ? 'active' : ''}"
       onclick={toggleStartMenu}
-      title="Menú de Inicio"
-    >⊞</button>
+      title="Menú de Inicio">⊞</button
+    >
   </section>
 
   <div class="divider"></div>
 
-  <div class="module programs" role="toolbar" aria-label="Aplicaciones abiertas">
+  <div
+    class="module programs"
+    role="toolbar"
+    aria-label="Aplicaciones abiertas"
+  >
     {#if errorMsg}
       <div style="color: red; font-size: 10px;">{errorMsg}</div>
     {/if}
     {#each apps as app (app.id)}
+      <!-- 1. Limpiamos la extensión de forma robusta, incluyendo los .lnk -->
+      {@const baseName =
+        app.exec_path
+          .split(/[\\/]/)
+          .pop()
+          ?.toLowerCase()
+          .replace(/\.(exe|lnk|url|bat|cmd|com)$/, "") || ""}
+
+      <!-- 2. Obtenemos el ID de Iconify y comprobamos si está explícitamente en el diccionario -->
+      {@const icon = iconifyer(app.exec_path)}
+      {@const isGuaranteed = !!exceptions[baseName]}
+
       <button
         class="program-btn {app.is_active ? 'active' : ''} {dragSrcId === app.id
           ? 'dragging'
@@ -243,11 +273,23 @@
         onpointerenter={() => onBtnPointerEnter(app)}
         onpointerleave={() => onBtnPointerLeave(app)}
       >
-        {#if app.icon_base64}
-          <img src={`data:image/png;base64,${app.icon_base64}`} alt={app.title} draggable="false" />
-        {:else}
-          <div class="generic-icon">📦</div>
-        {/if}
+        <div class="icon-wrapper">
+          {#if isGuaranteed}
+            <!-- OPCIÓN A: Está mapeado en el diccionario, mostramos el minimalista -->
+            <Icon {icon} />
+          {:else if app.icon_base64}
+            <!-- OPCIÓN B: No está mapeado, pero Rust nos dio el original. Lo mostramos -->
+            <img
+              src={`data:image/png;base64,${app.icon_base64}`}
+              alt={app.title}
+              draggable="false"
+            />
+          {:else}
+            <!-- OPCIÓN C (Ultimísima): No está mapeado Y Rust falló al extraerlo. -->
+            <Icon {icon} />
+          {/if}
+        </div>
+
         {#if app.is_active}
           <div class="active-indicator"></div>
         {/if}
@@ -265,7 +307,7 @@
 
   <section class="module utils">
     <button
-      class="utils-container"
+      class="utils-container {isMenuVisible ? 'active' : ''}"
       onclick={() => toggleControlMenu()}
       use:anchor={"battery"}
       type="button"
@@ -280,9 +322,9 @@
   <div class="divider"></div>
 
   <section class="module others">
-    <div class="clock">
+    <button class="clock-container" type="button">
       <Clock />
-    </div>
+    </button>
   </section>
 </main>
 
@@ -374,7 +416,10 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: background 0.15s, opacity 0.15s, transform 0.15s;
+    transition:
+      background 0.15s,
+      opacity 0.15s,
+      transform 0.15s;
     padding: 0;
     flex-shrink: 0;
     user-select: none;
@@ -398,16 +443,20 @@
     border-radius: 6px;
   }
 
-  .program-btn img {
+  .icon-wrapper {
     width: 24px;
     height: 24px;
-    object-fit: contain;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
   }
 
-  .generic-icon {
-    font-size: 1.2rem;
-    pointer-events: none;
+  .icon-wrapper img,
+  .icon-wrapper :global(svg) {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   .active-indicator {
@@ -447,6 +496,42 @@
   }
 
   .utils-container:active {
+    transform: scale(0.98);
+  }
+
+  .utils-container.active {
+    background: #000;
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .utils-container.active:hover {
+    background: #000;
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .clock-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 50px;
+    padding: 0 16px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    color: inherit;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .clock-container:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .clock-container:active {
     transform: scale(0.98);
   }
 

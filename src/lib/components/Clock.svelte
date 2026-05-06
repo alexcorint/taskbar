@@ -32,9 +32,10 @@
   .clock {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     font-size: 0.85rem;
     font-weight: bold;
+    line-height: 1.1;
   }
   .date {
     font-size: 0.75rem;

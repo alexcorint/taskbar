@@ -7,7 +7,7 @@
 // Batería: SYSTEM_POWER_STATUS de Win32.
 // Perfiles de energía: PowerEnumerate / PowerSetActiveScheme.
 
-use crate::types::{BatteryInfo, PowerProfile};
+use crate::types::BatteryInfo;
 use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -212,105 +212,4 @@ fn get_battery_wmi() -> Option<u8> {
 
     let s = String::from_utf8_lossy(&output.stdout);
     s.trim().parse::<u8>().ok()
-}
-
-// ---------------------------------------------------------------------------
-// Perfiles de energía
-// ---------------------------------------------------------------------------
-
-fn enumerate_power_profiles() -> Vec<(windows::core::GUID, String)> {
-    use windows::Win32::System::Power::{
-        PowerEnumerate, PowerReadFriendlyName, ACCESS_SCHEME,
-    };
-
-    let mut result = Vec::new();
-    unsafe {
-        let mut index = 0u32;
-        loop {
-            let mut guid = windows::core::GUID::default();
-            let mut size = std::mem::size_of::<windows::core::GUID>() as u32;
-
-            let res = PowerEnumerate(
-                None,
-                None,
-                None,
-                ACCESS_SCHEME,
-                index,
-                Some(&mut guid as *mut _ as *mut u8),
-                &mut size,
-            );
-            if res.0 != 0 {
-                break;
-            }
-
-            let mut name_size = 0u32;
-            let _ = PowerReadFriendlyName(None, Some(&guid), None, None, None, &mut name_size);
-
-            let name = if name_size > 0 {
-                let mut buf = vec![0u16; (name_size / 2) as usize];
-                let _ = PowerReadFriendlyName(
-                    None,
-                    Some(&guid),
-                    None,
-                    None,
-                    Some(buf.as_mut_ptr() as *mut u8),
-                    &mut name_size,
-                );
-                String::from_utf16_lossy(&buf)
-                    .trim_matches('\0')
-                    .to_string()
-            } else {
-                String::new()
-            };
-
-            result.push((guid, name));
-            index += 1;
-        }
-    }
-    result
-}
-
-fn get_active_scheme_guid() -> Option<windows::core::GUID> {
-    use windows::Win32::System::Power::PowerGetActiveScheme;
-
-    unsafe {
-        let mut ptr: *mut windows::core::GUID = std::ptr::null_mut();
-        // PowerGetActiveScheme retorna Result — convertir a Option
-        if PowerGetActiveScheme(None, &mut ptr).is_err() {
-            return None;
-        }
-
-        if ptr.is_null() {
-            return None;
-        }
-
-        let guid = *ptr;
-        windows::Win32::System::Com::CoTaskMemFree(Some(ptr as *const _));
-        Some(guid)
-    }
-}
-
-pub fn get_power_profiles() -> Vec<PowerProfile> {
-    let active = get_active_scheme_guid();
-    enumerate_power_profiles()
-        .into_iter()
-        .map(|(guid, name)| PowerProfile {
-            guid: format!("{:?}", guid),
-            active: Some(guid) == active,
-            name,
-        })
-        .collect()
-}
-
-pub fn set_power_profile(guid_str: &str) {
-    use windows::Win32::System::Power::PowerSetActiveScheme;
-
-    for (guid, _) in enumerate_power_profiles() {
-        if format!("{:?}", guid) == guid_str {
-            unsafe {
-                let _ = PowerSetActiveScheme(None, Some(&guid));
-            }
-            break;
-        }
-    }
 }
