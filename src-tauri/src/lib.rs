@@ -11,8 +11,8 @@ mod platform;
 mod types;
 mod watchdog;
 
-use types::*;
 use tauri::Manager;
+use types::*;
 
 // ---------------------------------------------------------------------------
 // MEDIA
@@ -48,6 +48,15 @@ async fn get_current_media() -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+async fn media_seek(position_ms: u64) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return platform::media::media_seek(position_ms).await;
+
+    #[cfg(not(target_os = "windows"))]
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // VENTANAS
 // ---------------------------------------------------------------------------
@@ -56,9 +65,7 @@ async fn get_current_media() -> Result<String, String> {
 fn move_window(window: tauri::Window, x: i32, y: i32, w: u32, h: u32) {
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
         if let Ok(hwnd) = window.hwnd() {
             unsafe {
                 let _ = SetWindowPos(
@@ -75,7 +82,9 @@ fn move_window(window: tauri::Window, x: i32, y: i32, w: u32, h: u32) {
         }
     }
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w, h)));
-    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x, y,
+    )));
 }
 
 #[tauri::command]
@@ -89,7 +98,10 @@ fn set_window_to_bottom(window: tauri::Window) {
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_BOTTOM),
-                0, 0, 0, 0,
+                0,
+                0,
+                0,
+                0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
         }
@@ -98,15 +110,23 @@ fn set_window_to_bottom(window: tauri::Window) {
 
 #[tauri::command]
 fn manage_window(app: tauri::AppHandle, label: String, action: WindowAction) {
-    let Some(window) = app.get_webview_window(&label) else { return };
+    let Some(window) = app.get_webview_window(&label) else {
+        return;
+    };
 
     match action {
-        WindowAction::Show => { let _ = window.show(); }
-        WindowAction::ShowAt { x, y } => {
-            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+        WindowAction::Show => {
             let _ = window.show();
         }
-        WindowAction::Hide => { let _ = window.hide(); }
+        WindowAction::ShowAt { x, y } => {
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                x, y,
+            )));
+            let _ = window.show();
+        }
+        WindowAction::Hide => {
+            let _ = window.hide();
+        }
         WindowAction::Update { x, y, w, h } => {
             #[cfg(target_os = "windows")]
             {
@@ -115,19 +135,31 @@ fn manage_window(app: tauri::AppHandle, label: String, action: WindowAction) {
                 };
                 if let Ok(hwnd) = window.hwnd() {
                     unsafe {
-                        let _ = SetWindowPos(hwnd, None, x, y, w, h,
-                            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                        let _ = SetWindowPos(
+                            hwnd,
+                            None,
+                            x,
+                            y,
+                            w,
+                            h,
+                            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                        );
                     }
                     return;
                 }
             }
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w as u32, h as u32)));
-            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+                w as u32, h as u32,
+            )));
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                x, y,
+            )));
             let _ = window.show();
         }
         WindowAction::UpdateLogical { x, y, w, h } => {
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)));
+            let _ =
+                window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)));
             let _ = window.show();
         }
     }
@@ -163,8 +195,7 @@ fn interact_app(hwnd: isize, exec_path: String) {
             use windows::core::PCWSTR;
             use windows::Win32::UI::Shell::ShellExecuteW;
             use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-            let path_wide: Vec<u16> =
-                exec_path.encode_utf16().chain(std::iter::once(0)).collect();
+            let path_wide: Vec<u16> = exec_path.encode_utf16().chain(std::iter::once(0)).collect();
             let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
             let _ = ShellExecuteW(
                 None,
@@ -181,6 +212,21 @@ fn interact_app(hwnd: isize, exec_path: String) {
 #[tauri::command]
 fn reorder_apps(ordered_ids: Vec<String>) {
     platform::taskbar::reorder_apps(ordered_ids);
+}
+
+#[tauri::command]
+fn pin_app(app: PinnedApp) {
+    platform::windows::pins::pin_app(app);
+}
+
+#[tauri::command]
+fn unpin_app(id: String) {
+    platform::windows::pins::unpin_app(&id);
+}
+
+#[tauri::command]
+fn get_pinned_apps() -> Vec<PinnedApp> {
+    platform::windows::pins::get_pinned_apps()
 }
 
 // ---------------------------------------------------------------------------
@@ -349,9 +395,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
             media_control,
+            media_seek,
             get_current_media,
             move_window,
             volume_control,
@@ -374,6 +420,9 @@ pub fn run() {
             get_wifi_networks,
             get_bluetooth_devices,
             get_radio_states,
+            pin_app,
+            unpin_app,
+            get_pinned_apps
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

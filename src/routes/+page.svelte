@@ -8,6 +8,7 @@
   import Battery from "$lib/components/Battery.svelte";
   import Volume from "$lib/components/Volume.svelte";
   import Network from "$lib/components/Network.svelte";
+  import MediaPill from "$lib/components/MediaPill.svelte";
   import Icon, { iconifyer, exceptions } from "$lib/iconMap";
 
   import { anchor } from "$lib/actions/anchor";
@@ -112,40 +113,59 @@
 
   function onBtnPointerMove(e: PointerEvent, app: TaskbarApp) {
     if (!dragOrigin || dragOrigin.id !== app.id) return;
+
     const dx = Math.abs(e.clientX - dragOrigin.startX);
     const dy = Math.abs(e.clientY - dragOrigin.startY);
+
     if (!isDragging && (dx > 6 || dy > 6)) {
       isDragging = true;
       dragSrcId = app.id;
     }
-  }
 
-  function onBtnPointerEnter(app: TaskbarApp) {
-    if (isDragging && dragSrcId !== app.id) {
-      dragOverId = app.id;
+    if (isDragging) {
+      const targetEl = e.currentTarget as HTMLElement;
+      const oldEvents = targetEl.style.pointerEvents;
+      targetEl.style.pointerEvents = "none";
+
+      const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
+      const btnBelow = elementBelow?.closest(".program-btn");
+
+      if (btnBelow) {
+        const hoverId = btnBelow.getAttribute("data-id");
+        if (hoverId && hoverId !== dragSrcId) {
+          dragOverId = hoverId;
+        } else {
+          dragOverId = null;
+        }
+      } else {
+        dragOverId = null;
+      }
+      targetEl.style.pointerEvents = oldEvents;
     }
   }
 
-  function onBtnPointerLeave(app: TaskbarApp) {
-    if (isDragging && dragOverId === app.id) {
-      dragOverId = null;
-    }
+  function resetDragState() {
+    isDragging = false;
+    dragSrcId = null;
+    dragOverId = null;
+    dragOrigin = null;
   }
 
   function onBtnPointerUp(e: PointerEvent, app: TaskbarApp) {
     if (!dragOrigin || dragOrigin.id !== app.id) return;
 
+    (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+
     if (isDragging) {
       const targetId = dragOverId;
-      isDragging = false;
-      dragSrcId = null;
-      dragOverId = null;
-      dragOrigin = null;
+      const sourceId = app.id;
+      resetDragState();
 
-      if (targetId && targetId !== app.id) {
+      if (targetId && targetId !== sourceId) {
         const newApps = [...apps];
-        const srcIdx = newApps.findIndex((a) => a.id === app.id);
+        const srcIdx = newApps.findIndex((a) => a.id === sourceId);
         const tgtIdx = newApps.findIndex((a) => a.id === targetId);
+
         if (srcIdx !== -1 && tgtIdx !== -1) {
           const [moved] = newApps.splice(srcIdx, 1);
           newApps.splice(tgtIdx, 0, moved);
@@ -156,11 +176,50 @@
         }
       }
     } else {
-      isDragging = false;
-      dragSrcId = null;
-      dragOverId = null;
-      dragOrigin = null;
+      resetDragState();
       interactApp(app);
+    }
+  }
+
+  function onBtnPointerCancel(e: PointerEvent) {
+    (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+    resetDragState();
+  }
+
+  async function handleContextMenu(e: MouseEvent, app: TaskbarApp) {
+    e.preventDefault();
+    const monitors = await getMonitors();
+    const monitor = monitors[0];
+    if (!monitor) return;
+
+    const menuW = 220;
+    const menuH = 62;
+    const x = Math.round(
+      monitor.x +
+        e.clientX * monitor.scale_factor -
+        (menuW * monitor.scale_factor) / 2,
+    );
+    const y = Math.round(
+      monitor.y + monitor.height - (48 + 10 + menuH) * monitor.scale_factor,
+    );
+
+    try {
+      await invoke("manage_window", {
+        label: "icon_menu",
+        action: {
+          type: "update",
+          x: x,
+          y: y,
+          w: Math.round(menuW * monitor.scale_factor),
+          h: Math.round(menuH * monitor.scale_factor),
+        },
+      });
+      await emit("icon-menu-data", app);
+    } catch (err) {
+      console.error(
+        "[taskbar] Error al invocar manage_window para icon_menu:",
+        err,
+      );
     }
   }
 
@@ -168,8 +227,10 @@
   // Ciclo de vida
   // ---------------------------------------------------------------------------
 
+  let isMouseInIconMenu = $state(false);
+  let iconMenuTimer: ReturnType<typeof setTimeout> | null = null;
+
   onMount(() => {
-    // Arrancar el store centralizado (una sola vez para toda la app)
     const stopPolling = startSystemPolling();
 
     async function setup() {
@@ -179,7 +240,7 @@
       try {
         await invoke("init_taskbar_environment");
 
-        const monitors = await getMonitors(); // usa caché del store
+        const monitors = await getMonitors();
         const monitor = monitors[0];
 
         if (monitor) {
@@ -210,10 +271,16 @@
       if (!isMouseInControlMenu) checkCloseControlMenu();
     }).then((fn) => (unlistenHover = fn));
 
+    let unlistenIconMenuHover: (() => void) | undefined;
+    listen<boolean>("icon-menu-hover", (event) => {
+      isMouseInIconMenu = event.payload;
+    }).then((fn) => (unlistenIconMenuHover = fn));
+
     return () => {
       clearInterval(appsInterval);
       stopPolling();
       unlistenHover?.();
+      unlistenIconMenuHover?.();
     };
   });
 </script>
@@ -235,8 +302,12 @@
     <button
       class="icon-btn {startMenuOpen ? 'active' : ''}"
       onclick={toggleStartMenu}
-      title="Menú de Inicio">⊞</button
+      title="Menú de Inicio"
     >
+      <div class="icon-wrapper">
+        <Icon icon="simple-icons:windows" width="20" height="20" />
+      </div>
+    </button>
   </section>
 
   <div class="divider"></div>
@@ -267,11 +338,14 @@
           ? 'dragging'
           : ''} {dragOverId === app.id ? 'drag-over' : ''}"
         title={app.title}
+        data-id={app.id}
         onpointerdown={(e) => onBtnPointerDown(e, app)}
         onpointermove={(e) => onBtnPointerMove(e, app)}
         onpointerup={(e) => onBtnPointerUp(e, app)}
-        onpointerenter={() => onBtnPointerEnter(app)}
-        onpointerleave={() => onBtnPointerLeave(app)}
+        onpointercancel={onBtnPointerCancel}
+        onmouseenter={() => emit("icon-hover", true)}
+        onmouseleave={() => emit("icon-hover", false)}
+        oncontextmenu={(e) => handleContextMenu(e, app)}
       >
         <div class="icon-wrapper">
           {#if isGuaranteed}
@@ -300,7 +374,9 @@
   <div class="divider"></div>
 
   <section class="module media">
-    <div class="media-ghost-slot" use:anchor={"media"}></div>
+    <div use:anchor={"media"}>
+      <MediaPill />
+    </div>
   </section>
 
   <div class="divider"></div>
@@ -533,14 +609,5 @@
 
   .clock-container:active {
     transform: scale(0.98);
-  }
-
-  .media-ghost-slot {
-    position: relative;
-    width: 300px;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 </style>

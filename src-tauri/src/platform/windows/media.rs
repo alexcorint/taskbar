@@ -93,3 +93,15 @@ pub async fn get_current_media() -> Result<String, String> {
 
     serde_json::to_string(&info).map_err(|e| e.to_string())
 }
+
+pub async fn media_seek(position_ms: u64) -> Result<(), String> {
+    let op = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().map_err(|e| e.to_string())?;
+    let manager = op.get().map_err(|e| e.to_string())?;
+    let session = manager.GetCurrentSession().map_err(|e| e.to_string())?;
+    
+    // 100-nanosecond units (1ms = 10,000 units)
+    let pos_100ns = (position_ms * 10_000) as i64;
+    
+    let _ = session.TryChangePlaybackPositionAsync(pos_100ns).map_err(|e| e.to_string())?;
+    Ok(())
+}

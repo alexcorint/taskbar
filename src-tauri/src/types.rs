@@ -84,6 +84,14 @@ pub struct TaskbarApp {
     pub exec_path: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[allow(dead_code)]
+pub struct PinnedApp {
+    pub id: String,
+    pub name: String,
+    pub exec_path: String,
+}
+
 // ---------------------------------------------------------------------------
 // Monitor
 // ---------------------------------------------------------------------------
@@ -117,7 +125,7 @@ pub enum VolumeAction {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "lowercase", tag = "type", content = "payload")]
+#[serde(rename_all = "lowercase", tag = "type")]
 pub enum WindowAction {
     Show,
     ShowAt { x: i32, y: i32 },

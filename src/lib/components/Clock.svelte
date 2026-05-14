@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import Icon from '$lib/iconMap';
 
   let time = '';
   let date = '';
@@ -24,18 +25,33 @@
 </script>
 
 <div class="clock">
-  <span class="time">{time}</span>
-  <span class="date">{date}</span>
+  <div class="icon-wrapper">
+    <Icon icon="fluent:clock-24-filled" width="20" height="20" />
+  </div>
+  <div class="text-container">
+    <span class="time">{time}</span>
+    <span class="date">{date}</span>
+  </div>
 </div>
 
 <style>
   .clock {
     display: flex;
-    flex-direction: column;
     align-items: center;
+    gap: 8px;
     font-size: 0.85rem;
     font-weight: bold;
     line-height: 1.1;
+  }
+  .icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .text-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
   }
   .date {
     font-size: 0.75rem;

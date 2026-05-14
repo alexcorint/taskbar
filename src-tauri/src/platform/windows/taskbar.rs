@@ -10,34 +10,28 @@ use crate::types::TaskbarApp;
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 use std::sync::{Mutex, OnceLock};
-use windows::core::{Interface, BOOL, PCWSTR};
+use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, MAX_PATH, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
     BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD,
 };
-use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
-use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
-    STGM,
-};
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::Shell::{
-    IShellLinkW, SHGetFileInfoW, ShellLink, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON,
-};
+use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, EnumWindows, FindWindowW, GetClassNameW, GetIconInfo, GetWindow,
-    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-    SendMessageTimeoutW, ShowWindow, GCLP_HICON, GWL_EXSTYLE, GW_OWNER, HICON, ICONINFO,
-    ICON_BIG, ICON_SMALL2, SMTO_ABORTIFHUNG, SW_HIDE, SW_SHOW, WM_GETICON, WS_EX_APPWINDOW,
-    WS_EX_TOOLWINDOW,
+    DestroyIcon, EnumWindows, FindWindowW, GetClassNameW, GetIconInfo, GetWindow, GetWindowLongW,
+    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SendMessageTimeoutW, ShowWindow,
+    GCLP_HICON, GWL_EXSTYLE, GW_OWNER, HICON, ICONINFO, ICON_BIG, ICON_SMALL2, SMTO_ABORTIFHUNG,
+    SW_HIDE, SW_SHOW, WM_GETICON, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 // PWSTR vive en windows::core en versiones recientes del crate
-use windows::core::PWSTR;
 use base64::Engine;
+use windows::core::PWSTR;
+use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
 
 #[cfg(target_pointer_width = "64")]
 use windows::Win32::UI::WindowsAndMessaging::GetClassLongPtrW;
@@ -56,7 +50,7 @@ pub fn get_icon_cache() -> &'static Mutex<HashMap<String, String>> {
 // Orden estable de apps en la barra entre actualizaciones
 pub fn get_app_order() -> &'static Mutex<Vec<String>> {
     static ORDER: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-    ORDER.get_or_init(|| Mutex::new(Vec::new()))
+    ORDER.get_or_init(|| Mutex::new(super::pins::load_order()))
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +190,9 @@ pub unsafe fn extract_icon_from_hwnd(hwnd: HWND) -> Option<String> {
         SMTO_ABORTIFHUNG,
         100,
         Some(&mut hicon_val),
-    ).0 != 0 && hicon_val != 0
+    )
+    .0 != 0
+        && hicon_val != 0
     {
         if let Some(b64) = hicon_to_base64(HICON(hicon_val as *mut _)) {
             return Some(b64);
@@ -212,7 +208,9 @@ pub unsafe fn extract_icon_from_hwnd(hwnd: HWND) -> Option<String> {
         SMTO_ABORTIFHUNG,
         100,
         Some(&mut hicon_val),
-    ).0 != 0 && hicon_val != 0
+    )
+    .0 != 0
+        && hicon_val != 0
     {
         if let Some(b64) = hicon_to_base64(HICON(hicon_val as *mut _)) {
             return Some(b64);
@@ -355,73 +353,32 @@ pub fn get_taskbar_apps() -> Vec<TaskbarApp> {
 
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let _ = EnumWindows(Some(enum_windows_proc), LPARAM(&mut state as *mut _ as isize));
+        let _ = EnumWindows(
+            Some(enum_windows_proc),
+            LPARAM(&mut state as *mut _ as isize),
+        );
 
-        // Apps fijadas desde el directorio de accesos directos de la barra de tareas
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let pinned_dir = format!(
-                r"{}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar",
-                appdata
-            );
-            if let Ok(entries) = std::fs::read_dir(&pinned_dir) {
-                if let Ok(shell_link) =
-                    CoCreateInstance::<_, IShellLinkW>(&ShellLink, None, CLSCTX_INPROC_SERVER)
-                {
-                    if let Ok(persist_file) = shell_link.cast::<IPersistFile>() {
-                        for entry in entries.filter_map(Result::ok) {
-                            let path = entry.path();
-                            if path.extension().and_then(|s| s.to_str()) != Some("lnk") {
-                                continue;
-                            }
-
-                            let path_str = path.to_str().unwrap_or_default();
-                            let path_wide: Vec<u16> =
-                                path_str.encode_utf16().chain(std::iter::once(0)).collect();
-
-                            if persist_file
-                                .Load(PCWSTR(path_wide.as_ptr()), STGM(0))
-                                .is_err()
-                            {
-                                continue;
-                            }
-
-                            let mut target_path = [0u16; 260];
-                            if shell_link
-                                .GetPath(&mut target_path, std::ptr::null_mut(), 0)
-                                .is_err()
-                            {
-                                continue;
-                            }
-
-                            let len = target_path.iter().position(|&c| c == 0).unwrap_or(260);
-                            let exec_path =
-                                String::from_utf16_lossy(&target_path[..len]).to_string();
-
-                            if let Some(app) = state.apps.iter_mut().find(|a| {
-                                a.exec_path.to_lowercase() == exec_path.to_lowercase()
-                            }) {
-                                app.is_pinned = true;
-                            } else {
-                                let icon_base64 = extract_icon_base64(path_str);
-                                let title = path
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or("App")
-                                    .to_string();
-
-                                state.apps.push(TaskbarApp {
-                                    id: path_str.to_string(),
-                                    title,
-                                    icon_base64,
-                                    is_active: false,
-                                    is_pinned: true,
-                                    hwnd: 0,
-                                    exec_path: path_str.to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
+        // Apps fijadas con nuestro sistema propio
+        let pinned = super::pins::get_pinned_apps();
+        for p in pinned {
+            if let Some(app) = state
+                .apps
+                .iter_mut()
+                .find(|a| a.exec_path.to_lowercase() == p.exec_path.to_lowercase())
+            {
+                app.is_pinned = true;
+            } else {
+                // App anclada pero no abierta (Ghost icon)
+                let icon_base64 = extract_icon_base64(&p.exec_path);
+                state.apps.push(TaskbarApp {
+                    id: p.id.clone(),
+                    title: p.name.clone(),
+                    icon_base64,
+                    is_active: false,
+                    is_pinned: true,
+                    hwnd: 0,
+                    exec_path: p.exec_path.clone(),
+                });
             }
         }
 
@@ -476,7 +433,8 @@ pub fn reorder_apps(ordered_ids: Vec<String>) {
             .collect()
     };
     new_order.extend(extras);
-    *order = new_order;
+    *order = new_order.clone();
+    super::pins::save_order(&new_order);
 }
 
 pub fn hide_windows_taskbar() {

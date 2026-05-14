@@ -1,31 +1,28 @@
 <script lang="ts">
     import { volume, setVolumeImmediate, toggleMuteImmediate } from "$lib/stores/system";
+    import Icon from "$lib/iconMap";
 
     let { brightness = $bindable(50), volumeValue = $bindable(0.5), updateBrightness } = $props();
+
+    const volumeIcon = $derived.by(() => {
+        if ($volume.is_muted || $volume.volume === 0) return "fluent:speaker-mute-24-filled";
+        if ($volume.volume > 0.66) return "fluent:speaker-2-24-filled";
+        if ($volume.volume > 0.33) return "fluent:speaker-1-24-filled";
+        return "fluent:speaker-0-24-filled";
+    });
+
+    const brightnessIcon = $derived.by(() => {
+        if (brightness > 80) return "fluent:brightness-high-24-filled";
+        if (brightness > 40) return "fluent:brightness-low-24-filled";
+        return "fluent:brightness-low-20-filled"; // Or another variant
+    });
 </script>
 
 <div class="controls-section">
     <!-- Brillo -->
     <div class="control-row">
         <span class="control-icon">
-            <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                width="18"
-                height="18"
-            >
-                <circle cx="12" cy="12" r={brightness < 33 ? 3 : brightness < 66 ? 4 : 5} />
-                <g opacity={0.3 + (brightness / 100) * 0.7}>
-                    <path d="M12 2v2" /><path d="M12 20v2" />
-                    <path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
-                    <path d="M2 12h2" /><path d="M20 12h2" />
-                    <path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />
-                </g>
-            </svg>
+            <Icon icon={brightnessIcon} width="18" height="18" />
         </span>
         <input
             type="range"
@@ -42,30 +39,7 @@
     <!-- Volumen -->
     <div class="control-row">
         <button class="control-icon-btn" onclick={toggleMuteImmediate}>
-            <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                width="18"
-                height="18"
-            >
-                {#if $volume.is_muted}
-                    <path d="M11 4.7L6 9H2v6h4l5 4.3V4.7z" />
-                    <line x1="22" y1="9" x2="16" y2="15" />
-                    <line x1="16" y1="9" x2="22" y2="15" />
-                {:else}
-                    <path d="M11 4.7L6 9H2v6h4l5 4.3V4.7z" />
-                    {#if $volume.volume >= 0.01}
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" opacity={$volume.volume < 0.33 ? 0.3 : 1} />
-                    {/if}
-                    {#if $volume.volume >= 0.33}
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" opacity={$volume.volume < 0.66 ? 0.3 : 1} />
-                    {/if}
-                {/if}
-            </svg>
+            <Icon icon={volumeIcon} width="18" height="18" />
         </button>
         <input
             type="range"

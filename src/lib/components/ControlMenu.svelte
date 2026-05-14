@@ -46,7 +46,7 @@
         const logicalY = anchorBottom - 48 - h - 10;
         await invoke("manage_window", {
             label: "control_menu",
-            action: { type: "updatelogical", payload: { x: logicalX, y: logicalY, w, h } },
+            action: { type: "updatelogical", x: logicalX, y: logicalY, w, h },
         });
     }
 

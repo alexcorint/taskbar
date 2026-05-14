@@ -51,6 +51,20 @@
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true
+      },
+      {
+        "title": "Icon Menu",
+        "label": "icon_menu",
+        "url": "/icon-menu",
+        "width": 268,
+        "height": 129,
+        "visible": false,
+        "resizable": false,
+        "shadow": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

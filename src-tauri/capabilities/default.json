@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "media_card",
-    "control_menu"
+    "control_menu",
+    "icon_menu"
   ],
   "permissions": [
     "core:default",

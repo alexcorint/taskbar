@@ -2,7 +2,7 @@
     import { invoke } from "@tauri-apps/api/core";
     import { slide, fade } from "svelte/transition";
     import { cubicOut } from "svelte/easing";
-    import Icon from "@iconify/svelte";
+    import Icon from "$lib/iconMap";
 
     // --- PROPS ---
     let { 

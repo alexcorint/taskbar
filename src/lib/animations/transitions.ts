@@ -51,3 +51,23 @@ export function blurFly(node: HTMLElement, {
         `
     };
 }
+
+/**
+ * Transición de deslizamiento horizontal con opacidad.
+ * Usada principalmente en el MediaPill y MediaCard.
+ */
+export const slideTransition = (node: Element, { direction = "right" } = {}) => {
+  const offsetX = direction === "left" ? 100 : -100;
+  return {
+    duration: 300,
+    easing: (t: number) => {
+      return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    },
+    css: (t: number) => {
+      return `
+        opacity: ${t};
+        transform: translateX(${offsetX * (1 - t)}px);
+      `;
+    },
+  };
+};
