@@ -175,31 +175,37 @@ fn get_taskbar_apps() -> Vec<TaskbarApp> {
 }
 
 #[tauri::command]
-fn interact_app(hwnd: isize, exec_path: String) {
+fn interact_app(hwnd: isize, exec_path: String, force_new: bool) {
     #[cfg(target_os = "windows")]
     unsafe {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+            IsIconic, IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
         };
 
-        if hwnd != 0 {
+        let mut focused = false;
+
+        if !force_new && hwnd != 0 {
             let h = HWND(hwnd as *mut _);
-            if IsIconic(h).as_bool() {
-                let _ = ShowWindow(h, SW_RESTORE);
-            } else {
-                let _ = ShowWindow(h, SW_SHOW);
+            if IsWindow(Some(h)).as_bool() {
+                if IsIconic(h).as_bool() {
+                    let _ = ShowWindow(h, SW_RESTORE);
+                } else {
+                    let _ = ShowWindow(h, SW_SHOW);
+                }
+                let _ = SetForegroundWindow(h);
+                focused = true;
             }
-            let _ = SetForegroundWindow(h);
-        } else if !exec_path.is_empty() {
+        }
+
+        if !focused && !exec_path.is_empty() {
             use windows::core::PCWSTR;
             use windows::Win32::UI::Shell::ShellExecuteW;
             use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
             let path_wide: Vec<u16> = exec_path.encode_utf16().chain(std::iter::once(0)).collect();
-            let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
             let _ = ShellExecuteW(
                 None,
-                PCWSTR(op_wide.as_ptr()),
+                PCWSTR(std::ptr::null()),
                 PCWSTR(path_wide.as_ptr()),
                 PCWSTR(std::ptr::null()),
                 PCWSTR(std::ptr::null()),
@@ -377,6 +383,18 @@ fn init_taskbar_environment() {
 }
 
 // ---------------------------------------------------------------------------
+// NOTIFICACIONES
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn start_notification_listener(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return platform::windows::listener::start_notification_listener(app).await;
+    #[cfg(not(target_os = "windows"))]
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // RUN
 // ---------------------------------------------------------------------------
 
@@ -422,7 +440,8 @@ pub fn run() {
             get_radio_states,
             pin_app,
             unpin_app,
-            get_pinned_apps
+            get_pinned_apps,
+            start_notification_listener
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

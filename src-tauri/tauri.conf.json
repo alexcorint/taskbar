@@ -65,6 +65,20 @@
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true
+      },
+      {
+        "title": "Notifications center",
+        "label": "notifications_center",
+        "url": "/notifications-center",
+        "width": 400,
+        "height": 600,
+        "visible": false,
+        "resizable": false,
+        "shadow": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

@@ -18,10 +18,10 @@ export const setIsExpanded = (val: boolean) => {
 
 // Store para la metadata de medios (para evitar fetch duplicados si es necesario)
 export const mediaData = writable({
-  title: "Now listening...",
+  title: "No audio source found",
   artist: "",
   album: "",
-  app_id: "Generic",
+  app_id: "Unknown",
   thumbnail_base64: "",
   is_playing: false,
   position_ms: 0,

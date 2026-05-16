@@ -69,3 +69,20 @@ export interface DragOrigin {
   startX: number;
   startY: number;
 }
+
+export interface SystemNotification {
+  id: number;
+  app_name: string;
+  app_id: string;
+  title: string;
+  body: string;
+  icon_base64?: string;
+}
+
+export interface PinnedApp {
+  id: string;
+  name: string;
+  exec_path: string;
+}
+
+

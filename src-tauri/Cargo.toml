@@ -8,6 +8,14 @@ default-run = "vibrant-dawn-taskbar"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "test_listener"
+path = "src/platform/windows/test_listener.rs"
+
+[[bin]]
+name = "vibrant-dawn-taskbar"
+path = "src/main.rs"
+
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
@@ -53,6 +61,7 @@ windows = {
         "Win32_Storage_FileSystem",
         "Win32_Security",
         "Win32_System_Com_StructuredStorage",
+        "Win32_System_WinRT",
         "Win32_Graphics_Gdi",
         "Win32_Graphics_Dwm",
         "Win32_UI_HiDpi",
@@ -63,7 +72,8 @@ windows = {
         "Devices_Enumeration",
         "Devices_Bluetooth",
         "UI_Notifications",
-        "UI_Notifications_Management"
+        "UI_Notifications_Management",
+        "ApplicationModel"
     ]
 }
 

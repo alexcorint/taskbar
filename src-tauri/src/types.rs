@@ -133,3 +133,17 @@ pub enum WindowAction {
     Update { x: i32, y: i32, w: i32, h: i32 },
     UpdateLogical { x: f64, y: f64, w: f64, h: f64 },
 }
+
+// ---------------------------------------------------------------------------
+// Notificaciones
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SystemNotification {
+    pub id: u32,
+    pub app_name: String,
+    pub app_id: String,
+    pub title: String,
+    pub body: String,
+    pub icon_base64: Option<String>,
+}

@@ -83,9 +83,13 @@
     }
   }
 
-  async function interactApp(app: TaskbarApp) {
+  async function interactApp(app: TaskbarApp, forceNew: boolean = false) {
     try {
-      await invoke("interact_app", { hwnd: app.hwnd, execPath: app.exec_path });
+      await invoke("interact_app", {
+        hwnd: app.hwnd,
+        execPath: app.exec_path,
+        forceNew,
+      });
       fetchApps();
     } catch (e: unknown) {
       errorMsg = String(e);
@@ -106,7 +110,7 @@
   // ---------------------------------------------------------------------------
 
   function onBtnPointerDown(e: PointerEvent, app: TaskbarApp) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 1) return;
     dragOrigin = { id: app.id, app, startX: e.clientX, startY: e.clientY };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }
@@ -176,8 +180,9 @@
         }
       }
     } else {
+      const forceNew = e.shiftKey || e.button === 1;
       resetDragState();
-      interactApp(app);
+      interactApp(app, forceNew);
     }
   }
 
@@ -265,6 +270,11 @@
 
     setup();
 
+    // Iniciar escucha de notificaciones
+    invoke("start_notification_listener").catch((err) =>
+      console.error("[taskbar] Error al iniciar notificaciones:", err),
+    );
+
     let unlistenHover: (() => void) | undefined;
     listen<boolean>("control-menu-hover", (event) => {
       isMouseInControlMenu = event.payload;
@@ -276,11 +286,17 @@
       isMouseInIconMenu = event.payload;
     }).then((fn) => (unlistenIconMenuHover = fn));
 
+    let unlistenNotifications: (() => void) | undefined;
+    listen("new-system-notification", (event) => {
+      console.log("🔔 Nueva notificación recibida en el frontend:", event.payload);
+    }).then((fn) => (unlistenNotifications = fn));
+
     return () => {
       clearInterval(appsInterval);
       stopPolling();
       unlistenHover?.();
       unlistenIconMenuHover?.();
+      unlistenNotifications?.();
     };
   });
 </script>
